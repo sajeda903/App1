@@ -101,7 +101,7 @@ input:focus{border-color:#666}
       roomLbl=document.getElementById('roomLbl'),whoLbl=document.getElementById('whoLbl'),
       chatScr=document.getElementById('chatScr');
   
-  var msgStore = []; // মেসেজ হিডেন রাখার জন্য
+  var msgStore = []; 
 
   /* ---------- গেট + অটো-লক ---------- */
   var holdT=null,taps=0,tapT=null,px=0,py=0,moved=false;
@@ -110,7 +110,7 @@ input:focus{border-color:#666}
     pinMode=load('pin')?'enter':'create';startPin();
   }
   function lockApp(){
-    unlocked=false;isRevealed=false;hidePic(); // লক হলে স্ক্রিন হাইড হবে
+    unlocked=false;isRevealed=false;hidePic(); 
     document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('on')});
     msgs.innerHTML='';typingEl.textContent='';
     if(socket)socket.emit('leave');
@@ -182,27 +182,34 @@ input:focus{border-color:#666}
   function startChat(r,s,n){
     myName=n;roomLbl.textContent='● '+r;whoLbl.textContent=n;
     msgs.innerHTML='';typingEl.textContent='';
-    isRevealed=false; // লগইন করলে স্ক্রিন ব্ল্যাঙ্ক থাকবে
+    isRevealed=false; 
     show('chatScr');unlocked=true;
     if(!socket){
       socket=io();
       socket.on('msg',function(d){
         if(!unlocked||!d||!d.id||!chatScr.classList.contains('on'))return;
-        addMsg(d, isRevealed); // যদি স্ক্রিন ব্ল্যাঙ্ক থাকে, ডমে যোগ হবে না, শুধু স্টোরে থাকবে
-        typingEl.textContent='';
-        if(d.from!==socket.id && isRevealed) {
-          // যদি স্ক্রিন খোলা থাকে, তাহলেই seen পাঠাবে আর টাইমার চালু হবে
-          var el = msgStore[msgStore.length-1];
-          if(el && !el.getAttribute('data-seen')) {
-            el.setAttribute('data-seen', '1');
-            socket.emit('seen', d.id);
-            vanish(d.id);
-          }
+        var exists = msgStore.find(m => m.getAttribute('data-id') === d.id);
+        if(!exists) {
+            addMsg(d, isRevealed); 
+            typingEl.textContent='';
+            if(d.name !== myName && isRevealed) {
+               var el = msgStore.find(m => m.getAttribute('data-id') === d.id);
+               if(el && !el.getAttribute('data-seen')) {
+                   el.setAttribute('data-seen', '1');
+                   socket.emit('seen', d.id);
+                   vanish(d.id);
+               }
+            }
         }
       });
       socket.on('seen',function(id){
         markSeen(id);
-        vanish(id); // অন্য পার্টি seen করলে টাইমার শুরু হবে
+        vanish(id);
+      });
+      socket.on('delete', function(id){
+          var domEl = msgs.querySelector('[data-id="'+id+'"]');
+          if(domEl) domEl.remove();
+          msgStore = msgStore.filter(function(m){ return m.getAttribute('data-id') !== String(id); });
       });
       socket.on('sys',function(t){var div=document.createElement('div');div.className='sys';div.textContent=t;msgs.appendChild(div);scrollDown()});
       socket.on('typing',function(who){if(who!==myName){typingEl.textContent=who+' লিখছে…';clearTimeout(tyClear);tyClear=setTimeout(function(){typingEl.textContent=''},2200)}});
@@ -212,7 +219,7 @@ input:focus{border-color:#666}
   }
   
   function addMsg(d, render) {
-    var me=(socket&&d.from===socket.id);
+    var me=(d.name === myName);
     var div=document.createElement('div');div.className='m '+(me?'me':'them');div.setAttribute('data-id',d.id);
     if(d.img){
       var im=document.createElement('img');im.src=d.img;im.className='pic';im.alt='';
@@ -240,7 +247,6 @@ input:focus{border-color:#666}
     isRevealed = true;
     while(msgs.firstChild) msgs.removeChild(msgs.firstChild);
     msgStore.forEach(function(el){ msgs.appendChild(el); });
-    // যেগুলো এখনো seen হয়নি, সেগুলো এখন seen হবে আর টাইমার শুরু হবে
     msgStore.forEach(function(el){
       if(el.classList.contains('them') && !el.getAttribute('data-seen')) {
         var id = el.getAttribute('data-id');
@@ -263,18 +269,15 @@ input:focus{border-color:#666}
   }
   
   function vanish(id){
-    // যদি আগে থেকেই টাইমার চলছে, তবে নতুন টাইমার লাগবে না
-    var el = msgStore.find(function(m){ return m.getAttribute('data-id') === String(id) && m.getAttribute('data-vanishing'); });
-    if(el) return;
-    
     var elStore = msgStore.find(function(m){ return m.getAttribute('data-id') === String(id); });
+    if(elStore && elStore.getAttribute('data-vanishing')) return;
     if(elStore) elStore.setAttribute('data-vanishing', '1');
 
     setTimeout(function(){
       var domEl=msgs.querySelector('[data-id="'+id+'"]');
       if(domEl){domEl.classList.add('fade');setTimeout(function(){if(domEl.parentNode)domEl.parentNode.removeChild(domEl)},650)}
       msgStore = msgStore.filter(function(m){ return m.getAttribute('data-id') !== String(id); });
-    },60000); // ৬০ সেকেন্ড = ১ মিনিট
+    },60000); 
   }
   
   function scrollDown(){msgs.scrollTop=msgs.scrollHeight}
@@ -316,7 +319,7 @@ input:focus{border-color:#666}
   function send(){
     var t=msgIn.value.trim();
     if(!t||!socket)return;
-    if(!isRevealed) revealMessages(); // পাঠালেই চ্যাট স্ক্রিন রিভিল হয়ে যাবে
+    if(!isRevealed) revealMessages(); 
     socket.emit('msg',{text:t});
     msgIn.value='';
   }
@@ -331,11 +334,11 @@ input:focus{border-color:#666}
     msgTapTimer=setTimeout(function(){msgTapCount=0},600);
     if(msgTapCount>=10){
       msgTapCount=0;
-      if(!isRevealed) revealMessages(); // ১০ বার ট্যাপে মেসেজ দেখা যাবে আর seen টাইমার শুরু হবে
+      if(!isRevealed) revealMessages(); 
     }
   });
 
-  /* চ্যাটের উপরের বারে ২ সেকেন্ড চেপে ধরলে setup খোলে (room বদলাতে) */
+  /* চ্যাটের উপরের বারে ২ সেকেন্ড চেপে ধরলে setup খোলে */
   var topBar=document.getElementById('top'),topT=null;
   topBar.addEventListener('pointerdown',function(e){if(e.target.id==='lockBtn')return;topT=setTimeout(startSetup,2000)});
   ['pointerup','pointerleave','pointercancel'].forEach(function(ev){topBar.addEventListener(ev,function(){clearTimeout(topT)})});
