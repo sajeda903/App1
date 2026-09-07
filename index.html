@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title></title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overscroll-behavior:none}
+body{background:#000;color:#ddd;font-family:-apple-system,system-ui,"Segoe UI",Roboto,sans-serif;overflow:hidden;touch-action:manipulation}
+#gate{position:fixed;inset:0;background:#000;z-index:50;touch-action:none;user-select:none;-webkit-user-select:none}
+.screen{position:fixed;inset:0;display:none;flex-direction:column;background:#000;z-index:10}
+.screen.on{display:flex}
+.pad{padding:26px 20px}
+h2{font-size:19px;margin-bottom:14px;color:#fff;font-weight:600}
+.sub{color:#777;font-size:13px;margin-bottom:18px;line-height:1.55}
+input{width:100%;background:#111;border:1px solid #333;color:#eee;border-radius:12px;padding:14px;font-size:16px;margin-bottom:12px;outline:none}
+input:focus{border-color:#666}
+.btn{width:100%;background:#e8e8e8;color:#000;border:none;border-radius:12px;padding:14px;font-size:16px;font-weight:700}
+.btn:active{background:#aaa}
+.dots{display:flex;gap:12px;justify-content:center;margin:6px 0 22px}
+.dot{width:13px;height:13px;border-radius:50%;border:2px solid #555}
+.dot.f{background:#fff;border-color:#fff}
+#msgs{flex:1;overflow-y:auto;padding:16px 14px}
+.m{max-width:78%;margin-bottom:10px;padding:9px 13px;border-radius:16px;font-size:15px;line-height:1.45;word-wrap:break-word;white-space:pre-wrap}
+.them{background:#1c1c1e;border-top-left-radius:4px}
+.me{background:#14532d;margin-left:auto;border-top-right-radius:4px}
+.sys{text-align:center;color:#555;font-size:12px;margin:8px 0}
+.meta{font-size:10px;color:rgba(255,255,255,.4);margin-top:3px}
+#typing{padding:0 16px 6px;color:#555;font-size:12px;height:18px}
+#bar{display:flex;gap:10px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));border-top:1px solid #1a1a1a}
+#bar input{flex:1;margin:0}
+#bar .btn{width:auto;padding:14px 18px;margin:0;font-size:15px}
+#top{display:flex;align-items:center;justify-content:space-between;padding:11px 16px;border-bottom:1px solid #1a1a1a;touch-action:none}
+#top .t{color:#666;font-size:13px}
+</style>
+</head>
+<body>
+<div id="gate"></div>
+
+<div class="screen" id="pinScr">
+  <div class="pad">
+    <h2 id="pinTitle"></h2>
+    <div class="dots" id="pinDots"></div>
+    <input id="pinIn" type="tel" inputmode="numeric" maxlength="6" placeholder="PIN">
+    <div class="sub" id="pinHint"></div>
+    <button class="btn" id="pinBtn">OK</button>
+  </div>
+</div>
+
+<div class="screen" id="setupScr">
+  <div class="pad">
+    <h2>সেটআপ</h2>
+    <div class="sub">দুই ফোনে <b>একই</b> room আর <b>একই</b> secret দিতে হবে — হুবহু এক (বড়/ছোট হাতের অক্ষর, স্পেস সব মিলবে)।</div>
+    <input id="roomIn" placeholder="room নাম (যেমন: moon17)">
+    <input id="secretIn" placeholder="secret (শুধু তোমরা দুজন জানবে)">
+    <input id="nameIn" placeholder="তোমার নাম">
+    <button class="btn" id="joinBtn">শুরু করো</button>
+  </div>
+</div>
+
+<div class="screen" id="chatScr">
+  <div id="top"><div class="t" id="roomLbl"></div><div class="t" id="whoLbl"></div></div>
+  <div id="msgs"></div>
+  <div id="typing"></div>
+  <div id="bar">
+    <input id="msgIn" placeholder="লিখো…" autocomplete="off">
+    <button class="btn" id="sendBtn">➤</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+(function(){
+  function save(k,v){try{localStorage.setItem('still_'+k,v)}catch(e){}}
+  function load(k){try{return localStorage.getItem('still_'+k)||''}catch(e){return''}}
+  function show(id){document.querySelectorAll('.screen').forEach(function(s){s.classList.remove('on')});document.getElementById(id).classList.add('on')}
+  function hash(s){var h=0;for(var i=0;i<s.length;i++){h=((h<<5)-h+s.charCodeAt(i))|0}return 'h'+h}
+  var socket=null,myName='',tyClear=null,tySent=false;
+
+  /* gate: ৩ বার দ্রুত ট্যাপ/ক্লিক অথবা ২ সেকেন্ড চেপে ধরা */
+  var gate=document.getElementById('gate');
+  var holdT=null,taps=0,tapT=null,px=0,py=0,moved=false;
+  function gateOpen(){
+    clearTimeout(holdT);holdT=null;gate.style.display='none';
+    pinMode=load('pin')?'enter':'create';startPin();
+  }
+  gate.addEventListener('pointerdown',function(e){px=e.clientX;py=e.clientY;moved=false;holdT=setTimeout(gateOpen,2000)});
+  gate.addEventListener('pointermove',function(e){if(Math.abs(e.clientX-px)>18||Math.abs(e.clientY-py)>18){moved=true;clearTimeout(holdT);holdT=null}});
+  gate.addEventListener('pointerup',function(){
+    if(holdT){clearTimeout(holdT);holdT=null}
+    if(moved)return;
+    taps++;clearTimeout(tapT);
+    if(taps>=3){taps=0;gateOpen();return}
+    tapT=setTimeout(function(){taps=0},1600);
+  });
+  gate.addEventListener('pointercancel',function(){clearTimeout(holdT);holdT=null});
+
+  var pinMode='create',pin1='';
+  var pinIn=document.getElementById('pinIn'),pinDots=document.getElementById('pinDots'),
+      pinTitle=document.getElementById('pinTitle'),pinHint=document.getElementById('pinHint');
+  function drawDots(){var n=pinIn.value.length,o='';for(var i=0;i<6;i++)o+='<div class="dot'+(i<n?' f':'')+'"></div>';pinDots.innerHTML=o}
+  pinIn.addEventListener('input',drawDots);
+  function startPin(){
+    show('pinScr');pinIn.value='';drawDots();
+    if(pinMode==='create'){pinTitle.textContent='PIN বানাও (৪–৬ সংখ্যা)';pinHint.textContent='এটা এই ফোনের লক।'}
+    else if(pinMode==='confirm'){pinTitle.textContent='আবার PIN দাও';pinHint.textContent='নিশ্চিত করতে।'}
+    else{pinTitle.textContent='PIN দাও';pinHint.textContent=''}
+  }
+  function pinDone(){
+    var v=pinIn.value.trim();
+    if(!/^\d{4,6}$/.test(v)){pinHint.textContent='৪ থেকে ৬ সংখ্যা দাও';return}
+    if(pinMode==='create'){pin1=v;pinMode='confirm';startPin()}
+    else if(pinMode==='confirm'){
+      if(v===pin1){save('pin',hash(v));startSetup()}
+      else{pinMode='create';startPin();pinHint.textContent='মিলেনি — আবার বানাও'}
+    }else{
+      if(hash(v)===load('pin'))startSetup();
+      else{startPin();pinHint.textContent='ভুল PIN'}
+    }
+  }
+  document.getElementById('pinBtn').addEventListener('click',pinDone);
+  pinIn.addEventListener('keydown',function(e){if(e.key==='Enter')pinDone()});
+
+  var roomIn=document.getElementById('roomIn'),secretIn=document.getElementById('secretIn'),nameIn=document.getElementById('nameIn');
+  function startSetup(){
+    show('setupScr');
+    roomIn.value=load('room');secretIn.value=load('secret');nameIn.value=load('name');
+  }
+  function joinRoom(){
+    var r=roomIn.value.trim(),s=secretIn.value.trim(),n=nameIn.value.trim();
+    if(!r||!s||!n){alert('তিনটা ঘরই পূরণ করো');return}
+    save('room',r);save('secret',s);save('name',n);
+    startChat(r,s,n);
+  }
+  document.getElementById('joinBtn').addEventListener('click',joinRoom);
+
+  var msgs=document.getElementById('msgs'),msgIn=document.getElementById('msgIn'),
+      roomLbl=document.getElementById('roomLbl'),whoLbl=document.getElementById('whoLbl'),
+      typingEl=document.getElementById('typing');
+  function startChat(r,s,n){
+    myName=n;roomLbl.textContent='● '+r;whoLbl.textContent=n;
+    show('chatScr');
+    if(!socket){
+      socket=io();
+      socket.on('msg',function(d){addMsg(d.name,d.text,d.ts);typingEl.textContent=''});
+      socket.on('sys',function(t){var div=document.createElement('div');div.className='sys';div.textContent=t;msgs.appendChild(div);scrollDown()});
+      socket.on('typing',function(who){if(who!==myName){typingEl.textContent=who+' লিখছে…';clearTimeout(tyClear);tyClear=setTimeout(function(){typingEl.textContent=''},2200)}});
+      msgIn.addEventListener('input',function(){if(socket&&!tySent){socket.emit('typing');tySent=true;setTimeout(function(){tySent=false},1500)}});
+    }
+    socket.emit('join',{room:r,secret:s,name:n});
+  }
+  function addMsg(who,text,ts){
+    var me=(who===myName);
+    var div=document.createElement('div');div.className='m '+(me?'me':'them');
+    if(!me){var b=document.createElement('b');b.textContent=who+': ';div.appendChild(b)}
+    div.appendChild(document.createTextNode(text));
+    var meta=document.createElement('div');meta.className='meta';
+    var d=new Date(ts||Date.now());
+    meta.textContent=d.getHours()+':'+('0'+d.getMinutes()).slice(-2);
+    div.appendChild(meta);
+    msgs.appendChild(div);scrollDown();
+  }
+  function scrollDown(){msgs.scrollTop=msgs.scrollHeight}
+  function send(){var t=msgIn.value.trim();if(!t||!socket)return;socket.emit('msg',t);msgIn.value=''}
+  document.getElementById('sendBtn').addEventListener('click',send);
+  msgIn.addEventListener('keydown',function(e){if(e.key==='Enter')send()});
+
+  /* লুকানো: চ্যাটের উপরের বারে ২ সেকেন্ড চেপে ধরলে setup ফিরে আসে */
+  var top=document.getElementById('top'),topT=null;
+  top.addEventListener('pointerdown',function(){topT=setTimeout(startSetup,2000)});
+  ['pointerup','pointerleave','pointercancel'].forEach(function(ev){top.addEventListener(ev,function(){clearTimeout(topT)})});
+})();
+</script>
+</body>
+</html>
